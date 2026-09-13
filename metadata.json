@@ -1,0 +1,6 @@
+{
+  "name": "CAT-IQ",
+  "description": "Sistema de Evaluación Psicométrica Adaptativa de Cociente Intelectual móvil con motor IRT on-device y modelo CHC.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
