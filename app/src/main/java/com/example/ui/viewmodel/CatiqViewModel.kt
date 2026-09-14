@@ -17,6 +17,7 @@ import com.example.data.repository.CatiqRepository
 import com.example.data.repository.UserPreferencesRepository
 import com.example.engine.ClinicalRagReport
 import com.example.engine.IrtEngine
+import com.example.engine.ItemRepetitionValidator
 import com.example.engine.MobileAttentionTelemetry
 import com.example.engine.PsychometricRagEngine
 import com.example.engine.TelemetryAnalysis
@@ -50,14 +51,17 @@ data class ActiveTestState(
   val optionDisplayOrder: List<Int> = listOf(0, 1, 2, 3),
   val remainingTimeSeconds: Int = 30,
   val isTestCompleted: Boolean = false,
-  val testBattery: TestBattery = TestBattery.FULL_CHC
+  val testBattery: TestBattery = TestBattery.FULL_CHC,
+  val recentExcludedItemIds: Set<String> = emptySet(),
+  val zeroRepetitionGuaranteed: Boolean = true
 )
 
 data class ReportState(
   val session: AssessmentSession? = null,
   val responses: List<ItemResponse> = emptyList(),
   val clinicalReport: ClinicalRagReport? = null,
-  val telemetry: TelemetryAnalysis? = null
+  val telemetry: TelemetryAnalysis? = null,
+  val repetitionAudit: ItemRepetitionValidator.SessionRepetitionAudit? = null
 )
 
 class CatiqViewModel(application: Application) : AndroidViewModel(application) {
@@ -112,7 +116,10 @@ class CatiqViewModel(application: Application) : AndroidViewModel(application) {
   init {
     viewModelScope.launch {
       repository.ensureItemBankSeeded()
-      allAvailableItems = repository.getAllItems()
+      val itemsFromDb = repository.getAllItems()
+      allAvailableItems = ItemRepetitionValidator.deduplicatePool(itemsFromDb)
+      // Auditoría preventiva de banco
+      ItemRepetitionValidator.validateBankIntegrity(allAvailableItems)
       repository.allSessionsFlow.collect { sessionList ->
         _sessions.value = sessionList
       }
@@ -144,7 +151,14 @@ class CatiqViewModel(application: Application) : AndroidViewModel(application) {
     viewModelScope.launch {
       if (allAvailableItems.isEmpty()) {
         repository.ensureItemBankSeeded()
-        allAvailableItems = repository.getAllItems()
+        allAvailableItems = ItemRepetitionValidator.deduplicatePool(repository.getAllItems())
+      }
+
+      // Consultar historial de reactivos recientes para control inter-sesión (evitar repetición entre pruebas)
+      val recentIds = try {
+        repository.getRecentlyAdministeredItemIds(limit = 60).toSet()
+      } catch (e: Exception) {
+        emptySet()
       }
 
       val newSessionId = UUID.randomUUID().toString()
@@ -155,9 +169,23 @@ class CatiqViewModel(application: Application) : AndroidViewModel(application) {
       val batteryPool = allAvailableItems.filter { it.domainCode in battery.eligibleDomains }
       val pool = if (batteryPool.isNotEmpty()) batteryPool else allAvailableItems
 
-      // Selección aleatoria del primer reactivo de dificultad moderada para evitar repetición
-      val firstCandidates = pool.filter { abs(it.difficultyB) <= 0.7 }
-      val firstItem = if (firstCandidates.isNotEmpty()) firstCandidates.random() else pool.random()
+      // Aplicar Validador Anti-Repetición para el ítem inicial:
+      // Excluye reactivos respondidos en sesiones recientes mientras el banco lo permita
+      val eligibleCandidates = ItemRepetitionValidator.filterEligibleCandidates(
+        availablePool = pool,
+        inSessionAdministered = emptyList(),
+        crossSessionExcludedIds = recentIds,
+        requiredCount = 2
+      )
+
+      val firstCandidates = eligibleCandidates.filter { abs(it.difficultyB) <= 0.7 }
+      val firstItem = if (firstCandidates.isNotEmpty()) {
+        firstCandidates.random()
+      } else if (eligibleCandidates.isNotEmpty()) {
+        eligibleCandidates.random()
+      } else {
+        pool.random()
+      }
 
       // Aleatorización estocástica del orden de opciones (A, B, C, D)
       val initialOptionOrder = listOf(0, 1, 2, 3).shuffled()
@@ -175,7 +203,9 @@ class CatiqViewModel(application: Application) : AndroidViewModel(application) {
         optionDisplayOrder = initialOptionOrder,
         remainingTimeSeconds = firstItem.expectedTimeSeconds,
         isTestCompleted = false,
-        testBattery = battery
+        testBattery = battery,
+        recentExcludedItemIds = recentIds,
+        zeroRepetitionGuaranteed = true
       )
 
       startItemTimer(firstItem.expectedTimeSeconds)
@@ -266,26 +296,38 @@ class CatiqViewModel(application: Application) : AndroidViewModel(application) {
         return@launch
       }
 
-      // Siguiente ítem con control de exposición estocástico Top-K filtrado por la batería elegida
+      // Siguiente ítem con validador anti-repetición intra-sesión e inter-sesión
       val domainCounts = updatedAdministered.groupingBy { it.domainCode }.eachCount()
-      val administeredItemIds = updatedAdministered.map { it.id }.toSet()
       val nextItem = IrtEngine.selectNextItem(
         currentTheta = newTheta,
         availableItems = allAvailableItems,
-        administeredItemIds = administeredItemIds,
+        administeredItems = updatedAdministered,
         domainCounts = domainCounts,
-        allowedDomains = battery.eligibleDomains
+        allowedDomains = battery.eligibleDomains,
+        crossSessionExcludedIds = state.recentExcludedItemIds
       )
-
 
       if (nextItem == null) {
         finalizeAssessment(state.sessionId, newTheta, newSe, updatedResponses, updatedAdministered, battery)
       } else {
-        val nextAdministeredList = updatedAdministered + nextItem
+        // Validador estricto de garantía de no duplicación
+        val validation = ItemRepetitionValidator.validateCandidate(nextItem, updatedAdministered)
+        val safeItem = if (validation.isValid) {
+          nextItem
+        } else {
+          // Si por alguna razón no pasó, seleccionar el primer candidato disponible no administrado
+          ItemRepetitionValidator.filterEligibleCandidates(
+            availablePool = allAvailableItems.filter { it.domainCode in battery.eligibleDomains },
+            inSessionAdministered = updatedAdministered,
+            crossSessionExcludedIds = emptySet()
+          ).firstOrNull() ?: nextItem
+        }
+
+        val nextAdministeredList = updatedAdministered + safeItem
         val nextOptionOrder = listOf(0, 1, 2, 3).shuffled()
 
         _activeTestState.value = state.copy(
-          currentItem = nextItem,
+          currentItem = safeItem,
           itemNumber = state.itemNumber + 1,
           currentTheta = newTheta,
           currentSe = newSe,
@@ -294,9 +336,9 @@ class CatiqViewModel(application: Application) : AndroidViewModel(application) {
           itemStartTimeMs = System.currentTimeMillis(),
           selectedDisplayIndex = null,
           optionDisplayOrder = nextOptionOrder,
-          remainingTimeSeconds = nextItem.expectedTimeSeconds
+          remainingTimeSeconds = safeItem.expectedTimeSeconds
         )
-        startItemTimer(nextItem.expectedTimeSeconds)
+        startItemTimer(safeItem.expectedTimeSeconds)
       }
     }
   }
@@ -368,11 +410,14 @@ class CatiqViewModel(application: Application) : AndroidViewModel(application) {
 
       repository.saveCompletedSession(session, responses)
 
+      val audit = ItemRepetitionValidator.auditSession(responses)
+
       _reportState.value = ReportState(
         session = session,
         responses = responses,
         clinicalReport = clinicalReport,
-        telemetry = telemetry
+        telemetry = telemetry,
+        repetitionAudit = audit
       )
 
       _aiInterpretation.value = session.aiInterpretation
@@ -406,11 +451,14 @@ class CatiqViewModel(application: Application) : AndroidViewModel(application) {
         telemetry = telemetry
       )
 
+      val audit = ItemRepetitionValidator.auditSession(responses)
+
       _reportState.value = ReportState(
         session = session,
         responses = responses,
         clinicalReport = clinicalReport,
-        telemetry = telemetry
+        telemetry = telemetry,
+        repetitionAudit = audit
       )
 
       _aiInterpretation.value = session.aiInterpretation

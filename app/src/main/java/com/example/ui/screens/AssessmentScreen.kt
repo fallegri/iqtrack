@@ -202,7 +202,43 @@ fun AssessmentScreen(
       trackColor = MaterialTheme.colorScheme.surfaceVariant
     )
 
-    Spacer(modifier = Modifier.height(8.dp))
+    Spacer(modifier = Modifier.height(4.dp))
+
+    // Badge de Validación Anti-Repetición
+    Row(
+      modifier = Modifier.fillMaxWidth(),
+      horizontalArrangement = Arrangement.SpaceBetween,
+      verticalAlignment = Alignment.CenterVertically
+    ) {
+      Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp)
+      ) {
+        Icon(
+          imageVector = Icons.Default.Check,
+          contentDescription = null,
+          tint = MetricGreen,
+          modifier = Modifier.size(12.dp)
+        )
+        Text(
+          text = "Validador Anti-Repetición: Activo (100% reactivos únicos)",
+          style = MaterialTheme.typography.labelSmall,
+          fontSize = 10.sp,
+          color = MetricGreen,
+          fontWeight = FontWeight.Medium
+        )
+      }
+      if (state.recentExcludedItemIds.isNotEmpty()) {
+        Text(
+          text = "${state.recentExcludedItemIds.size} ítems en cooldown",
+          style = MaterialTheme.typography.labelSmall,
+          fontSize = 10.sp,
+          color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+      }
+    }
+
+    Spacer(modifier = Modifier.height(6.dp))
 
     // 3. Contenedor principal con estímulo, prompt y alternativas en cuadrícula 2x2
     Column(

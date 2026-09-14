@@ -151,26 +151,37 @@ object IrtEngine {
   }
 
   /**
-   * Algoritmo de selección adaptativa estocástica (Sympson-Hetter / Top-K randomization):
+   * Algoritmo de selección adaptativa estocástica (Sympson-Hetter / Top-K randomization)
+   * con Validador Anti-Repetición intra-sesión e inter-sesión:
    * Combina Maximum Fisher Information (MFI) con balanceo de dominios CHC (Kingsbury-Zarachara)
-   * y selección probabilística controlada para prevenir repetición sistemática de secuencias.
+   * y filtrado estricto contra reactivos previamente administrados o con estímulos duplicados.
    */
   fun selectNextItem(
     currentTheta: Double,
     availableItems: List<PsychometricItem>,
-    administeredItemIds: Set<String>,
+    administeredItems: List<PsychometricItem>,
     domainCounts: Map<String, Int>,
-    allowedDomains: List<String>? = null
+    allowedDomains: List<String>? = null,
+    crossSessionExcludedIds: Set<String> = emptySet()
   ): PsychometricItem? {
-    val baseCandidates = availableItems.filter { it.id !in administeredItemIds }
-    val candidates = if (allowedDomains != null && allowedDomains.isNotEmpty()) {
-      baseCandidates.filter { it.domainCode in allowedDomains }
+    // 1. Filtrar dominio de la batería
+    val domainFiltered = if (allowedDomains != null && allowedDomains.isNotEmpty()) {
+      availableItems.filter { it.domainCode in allowedDomains }
     } else {
-      baseCandidates
+      availableItems
     }
+
+    // 2. Aplicar Validador Anti-Repetición (Intra-sesión estricto + Inter-sesión recencia)
+    val candidates = ItemRepetitionValidator.filterEligibleCandidates(
+      availablePool = domainFiltered,
+      inSessionAdministered = administeredItems,
+      crossSessionExcludedIds = crossSessionExcludedIds,
+      requiredCount = 2
+    )
+
     if (candidates.isEmpty()) return null
 
-    // Balanceo de dominios elegibles
+    // 3. Balanceo de dominios elegibles
     val eligibleDomainCounts = if (allowedDomains != null && allowedDomains.isNotEmpty()) {
       domainCounts.filterKeys { it in allowedDomains }
     } else {
@@ -183,7 +194,7 @@ object IrtEngine {
     val domainPool = candidates.filter { it.domainCode in prioritizedDomains }
     val selectionPool = if (domainPool.isNotEmpty()) domainPool else candidates
 
-    // Ordenar por Información de Fisher en theta actual
+    // 4. Ordenar por Información de Fisher en theta actual
     val scoredCandidates = selectionPool.map { item ->
       val info = calculateFisherInformation(
         currentTheta,
@@ -194,9 +205,37 @@ object IrtEngine {
       Pair(item, info)
     }.sortedByDescending { it.second }
 
-    // Top-K estocástico (seleccionar aleatoriamente entre los mejores 3 candidatos para no repetir orden idéntico)
+    // 5. Top-K estocástico (seleccionar aleatoriamente entre los mejores 3 candidatos para no repetir orden idéntico)
     val topK = scoredCandidates.take(3)
-    return topK.randomOrNull()?.first ?: scoredCandidates.firstOrNull()?.first
+    val chosen = topK.randomOrNull()?.first ?: scoredCandidates.firstOrNull()?.first
+
+    // 6. Validación final de integridad
+    if (chosen != null && ItemRepetitionValidator.validateCandidate(chosen, administeredItems).isValid) {
+      return chosen
+    }
+
+    // Si la elección no pasó, buscar el primer candidato que sea 100% válido
+    return scoredCandidates.firstOrNull {
+      ItemRepetitionValidator.validateCandidate(it.first, administeredItems).isValid
+    }?.first
+  }
+
+  // Sobrecarga de compatibilidad
+  fun selectNextItem(
+    currentTheta: Double,
+    availableItems: List<PsychometricItem>,
+    administeredItemIds: Set<String>,
+    domainCounts: Map<String, Int>,
+    allowedDomains: List<String>? = null
+  ): PsychometricItem? {
+    val dummyAdministered = availableItems.filter { it.id in administeredItemIds }
+    return selectNextItem(
+      currentTheta = currentTheta,
+      availableItems = availableItems,
+      administeredItems = dummyAdministered,
+      domainCounts = domainCounts,
+      allowedDomains = allowedDomains
+    )
   }
 
   /**

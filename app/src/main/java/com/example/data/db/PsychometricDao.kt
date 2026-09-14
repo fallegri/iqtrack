@@ -43,4 +43,7 @@ interface PsychometricDao {
 
   @Query("DELETE FROM item_responses WHERE sessionId = :sessionId")
   suspend fun deleteResponsesForSession(sessionId: String)
+
+  @Query("SELECT DISTINCT itemId FROM item_responses ORDER BY id DESC LIMIT :limit")
+  suspend fun getRecentlyAdministeredItemIds(limit: Int = 100): List<String>
 }

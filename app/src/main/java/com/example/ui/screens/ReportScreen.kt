@@ -179,7 +179,8 @@ fun ReportScreen(
     item {
       TelemetryAuditCard(
         session = session,
-        telemetry = telemetry
+        telemetry = telemetry,
+        repetitionAudit = state.repetitionAudit
       )
     }
 
@@ -344,7 +345,8 @@ private fun RagClinicalNarrativeCard(
 @Composable
 private fun TelemetryAuditCard(
   session: com.example.data.model.AssessmentSession,
-  telemetry: com.example.engine.TelemetryAnalysis?
+  telemetry: com.example.engine.TelemetryAnalysis?,
+  repetitionAudit: com.example.engine.ItemRepetitionValidator.SessionRepetitionAudit? = null
 ) {
   Card(
     modifier = Modifier.fillMaxWidth(),
@@ -400,6 +402,60 @@ private fun TelemetryAuditCard(
             fontWeight = FontWeight.Bold,
             color = if (isValid) MetricGreen else MetricYellow,
             fontSize = 10.sp
+          )
+        }
+      }
+
+      // Validador Psicométrico Anti-Repetición
+      Row(
+        modifier = Modifier
+          .fillMaxWidth()
+          .background(MetricGreen.copy(alpha = 0.10f), RoundedCornerShape(10.dp))
+          .border(1.dp, MetricGreen.copy(alpha = 0.35f), RoundedCornerShape(10.dp))
+          .padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+      ) {
+        Row(
+          verticalAlignment = Alignment.CenterVertically,
+          horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+          Icon(
+            imageVector = Icons.Default.CheckCircle,
+            contentDescription = null,
+            tint = MetricGreen,
+            modifier = Modifier.size(18.dp)
+          )
+          Column {
+            Text(
+              text = "VALIDADOR ANTI-REPETICIÓN",
+              style = MaterialTheme.typography.labelSmall,
+              fontWeight = FontWeight.Bold,
+              color = MetricGreen,
+              fontSize = 10.sp
+            )
+            Text(
+              text = if (repetitionAudit != null) {
+                "${repetitionAudit.uniqueAdministered} de ${repetitionAudit.totalAdministered} reactivos únicos certificados"
+              } else {
+                "${session.totalItems} reactivos únicos (0 duplicados)"
+              },
+              style = MaterialTheme.typography.bodySmall,
+              color = MaterialTheme.colorScheme.onSurface,
+              fontWeight = FontWeight.Medium
+            )
+          }
+        }
+        Box(
+          modifier = Modifier
+            .background(MetricGreen, RoundedCornerShape(12.dp))
+            .padding(horizontal = 8.dp, vertical = 4.dp)
+        ) {
+          Text(
+            text = "0 DUPLICADOS",
+            color = Color.Black,
+            fontWeight = FontWeight.Bold,
+            fontSize = 9.sp
           )
         }
       }

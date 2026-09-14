@@ -52,6 +52,10 @@ class CatiqRepository(private val dao: PsychometricDao) {
     dao.deleteResponsesForSession(sessionId)
   }
 
+  suspend fun getRecentlyAdministeredItemIds(limit: Int = 100): List<String> = withContext(Dispatchers.IO) {
+    dao.getRecentlyAdministeredItemIds(limit)
+  }
+
   companion object {
     fun create(context: Context): CatiqRepository {
       val db = CatiqDatabase.getDatabase(context)
