@@ -14,7 +14,7 @@ import com.example.data.model.PsychometricItem
     AssessmentSession::class,
     ItemResponse::class
   ],
-  version = 1,
+  version = 2,
   exportSchema = false
 )
 abstract class CatiqDatabase : RoomDatabase() {

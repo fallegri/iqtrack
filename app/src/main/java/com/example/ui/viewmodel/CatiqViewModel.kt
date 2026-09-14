@@ -3,11 +3,18 @@ package com.example.ui.viewmodel
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.data.ai.AiConsultantConfig
+import com.example.data.ai.AiConsultantService
+import com.example.data.ai.AiProvider
+import com.example.data.ai.TestLengthMode
 import com.example.data.model.AssessmentSession
 import com.example.data.model.ChcDomain
 import com.example.data.model.ItemResponse
 import com.example.data.model.PsychometricItem
+import com.example.data.model.TestBattery
+import com.example.data.model.UserProfile
 import com.example.data.repository.CatiqRepository
+import com.example.data.repository.UserPreferencesRepository
 import com.example.engine.ClinicalRagReport
 import com.example.engine.IrtEngine
 import com.example.engine.MobileAttentionTelemetry
@@ -20,12 +27,14 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import java.util.UUID
+import kotlin.math.abs
 
 enum class AppScreen {
   DASHBOARD,
   ACTIVE_TEST,
   REPORT,
-  SDD_ARCHITECTURE
+  ABOUT,
+  USER_REGISTRATION
 }
 
 data class ActiveTestState(
@@ -37,9 +46,11 @@ data class ActiveTestState(
   val administeredItems: List<PsychometricItem> = emptyList(),
   val responses: List<ItemResponse> = emptyList(),
   val itemStartTimeMs: Long = 0L,
-  val selectedOption: Int? = null,
+  val selectedDisplayIndex: Int? = null,
+  val optionDisplayOrder: List<Int> = listOf(0, 1, 2, 3),
   val remainingTimeSeconds: Int = 30,
-  val isTestCompleted: Boolean = false
+  val isTestCompleted: Boolean = false,
+  val testBattery: TestBattery = TestBattery.FULL_CHC
 )
 
 data class ReportState(
@@ -52,6 +63,7 @@ data class ReportState(
 class CatiqViewModel(application: Application) : AndroidViewModel(application) {
 
   private val repository = CatiqRepository.create(application)
+  private val userPrefs = UserPreferencesRepository(application)
 
   private val _currentScreen = MutableStateFlow(AppScreen.DASHBOARD)
   val currentScreen: StateFlow<AppScreen> = _currentScreen.asStateFlow()
@@ -59,11 +71,40 @@ class CatiqViewModel(application: Application) : AndroidViewModel(application) {
   private val _sessions = MutableStateFlow<List<AssessmentSession>>(emptyList())
   val sessions: StateFlow<List<AssessmentSession>> = _sessions.asStateFlow()
 
+  private val _userProfile = MutableStateFlow(userPrefs.getUserProfile())
+  val userProfile: StateFlow<UserProfile> = _userProfile.asStateFlow()
+
+  private val _selectedBattery = MutableStateFlow(TestBattery.FULL_CHC)
+  val selectedBattery: StateFlow<TestBattery> = _selectedBattery.asStateFlow()
+
   private val _activeTestState = MutableStateFlow(ActiveTestState())
   val activeTestState: StateFlow<ActiveTestState> = _activeTestState.asStateFlow()
 
   private val _reportState = MutableStateFlow(ReportState())
   val reportState: StateFlow<ReportState> = _reportState.asStateFlow()
+
+  private val aiConsultantService = AiConsultantService()
+
+  private val _aiConfig = MutableStateFlow(userPrefs.getAiConfig())
+  val aiConfig: StateFlow<AiConsultantConfig> = _aiConfig.asStateFlow()
+
+  private val _isAiGenerating = MutableStateFlow(false)
+  val isAiGenerating: StateFlow<Boolean> = _isAiGenerating.asStateFlow()
+
+  private val _aiError = MutableStateFlow<String?>(null)
+  val aiError: StateFlow<String?> = _aiError.asStateFlow()
+
+  private val _aiInterpretation = MutableStateFlow("")
+  val aiInterpretation: StateFlow<String> = _aiInterpretation.asStateFlow()
+
+  private val _followUpHistory = MutableStateFlow<List<Pair<String, String>>>(emptyList())
+  val followUpHistory: StateFlow<List<Pair<String, String>>> = _followUpHistory.asStateFlow()
+
+  private val _isFollowUpLoading = MutableStateFlow(false)
+  val isFollowUpLoading: StateFlow<Boolean> = _isFollowUpLoading.asStateFlow()
+
+  private val _showAiSettingsDialog = MutableStateFlow(false)
+  val showAiSettingsDialog: StateFlow<Boolean> = _showAiSettingsDialog.asStateFlow()
 
   private var allAvailableItems: List<PsychometricItem> = emptyList()
   private var timerJob: Job? = null
@@ -82,7 +123,24 @@ class CatiqViewModel(application: Application) : AndroidViewModel(application) {
     _currentScreen.value = screen
   }
 
-  fun startNewAssessment() {
+  fun saveUserProfile(profile: UserProfile) {
+    userPrefs.saveUserProfile(profile)
+    _userProfile.value = profile
+    _currentScreen.value = AppScreen.DASHBOARD
+  }
+
+  fun selectBattery(battery: TestBattery) {
+    _selectedBattery.value = battery
+  }
+
+  fun viewLatestSession() {
+    val latest = _sessions.value.maxByOrNull { it.completedAt }
+    if (latest != null) {
+      viewSessionReport(latest)
+    }
+  }
+
+  fun startNewAssessment(battery: TestBattery = _selectedBattery.value) {
     viewModelScope.launch {
       if (allAvailableItems.isEmpty()) {
         repository.ensureItemBankSeeded()
@@ -93,8 +151,16 @@ class CatiqViewModel(application: Application) : AndroidViewModel(application) {
       val initialTheta = 0.0
       val initialSe = 1.0
 
-      // Seleccionar primer ítem de razonamiento inductivo inicial (Gf dificultad media b ≈ 0)
-      val firstItem = allAvailableItems.find { it.id == "GF_02" } ?: allAvailableItems.first()
+      // Filtrar banco de reactivos para la batería seleccionada
+      val batteryPool = allAvailableItems.filter { it.domainCode in battery.eligibleDomains }
+      val pool = if (batteryPool.isNotEmpty()) batteryPool else allAvailableItems
+
+      // Selección aleatoria del primer reactivo de dificultad moderada para evitar repetición
+      val firstCandidates = pool.filter { abs(it.difficultyB) <= 0.7 }
+      val firstItem = if (firstCandidates.isNotEmpty()) firstCandidates.random() else pool.random()
+
+      // Aleatorización estocástica del orden de opciones (A, B, C, D)
+      val initialOptionOrder = listOf(0, 1, 2, 3).shuffled()
 
       _activeTestState.value = ActiveTestState(
         sessionId = newSessionId,
@@ -105,9 +171,11 @@ class CatiqViewModel(application: Application) : AndroidViewModel(application) {
         administeredItems = listOf(firstItem),
         responses = emptyList(),
         itemStartTimeMs = System.currentTimeMillis(),
-        selectedOption = null,
+        selectedDisplayIndex = null,
+        optionDisplayOrder = initialOptionOrder,
         remainingTimeSeconds = firstItem.expectedTimeSeconds,
-        isTestCompleted = false
+        isTestCompleted = false,
+        testBattery = battery
       )
 
       startItemTimer(firstItem.expectedTimeSeconds)
@@ -118,89 +186,104 @@ class CatiqViewModel(application: Application) : AndroidViewModel(application) {
   private fun startItemTimer(seconds: Int) {
     timerJob?.cancel()
     timerJob = viewModelScope.launch {
-      for (remaining in seconds downTo 0) {
+      var remaining = seconds
+      while (remaining > 0) {
+        delay(1000)
+        remaining--
         _activeTestState.value = _activeTestState.value.copy(remainingTimeSeconds = remaining)
-        if (remaining == 0) {
-          // Si expira el tiempo sin responder, enviar opción no contestada (-1)
-          if (_activeTestState.value.selectedOption == null) {
-            submitAnswer(-1)
-          }
-          break
-        }
-        delay(1000L)
       }
+      // Al expirar el tiempo límite se registra omisión/tiempo agotado
+      submitCurrentAnswer(isTimeExpired = true)
     }
   }
 
-  fun selectOption(optionIndex: Int) {
-    _activeTestState.value = _activeTestState.value.copy(selectedOption = optionIndex)
+  fun selectOption(displayIndex: Int) {
+    _activeTestState.value = _activeTestState.value.copy(selectedDisplayIndex = displayIndex)
   }
 
-  fun submitCurrentAnswer() {
-    val selected = _activeTestState.value.selectedOption ?: return
-    submitAnswer(selected)
-  }
-
-  private fun submitAnswer(selectedOptionIndex: Int) {
+  fun submitCurrentAnswer(isTimeExpired: Boolean = false) {
     timerJob?.cancel()
     val state = _activeTestState.value
     val currentItem = state.currentItem ?: return
 
-    val responseDurationMs = System.currentTimeMillis() - state.itemStartTimeMs
-    val isCorrect = (selectedOptionIndex == currentItem.correctOptionIndex)
+    val responseTimeMs = (System.currentTimeMillis() - state.itemStartTimeMs).coerceAtLeast(500)
 
-    // Crear lista de respuestas actualizadas
-    val updatedAdministered = state.administeredItems
-    val currentResponsesBoolean = state.responses.map { it.isCorrect } + isCorrect
-
-    // Actualización de estimación Theta y SE mediante EAP con cuadratura numérica
-    val (newTheta, newSe) = IrtEngine.estimateThetaEap(updatedAdministered, currentResponsesBoolean)
-
-    val itemResponse = ItemResponse(
-      sessionId = state.sessionId,
-      itemId = currentItem.id,
-      itemDomain = currentItem.domainCode,
-      selectedOptionIndex = selectedOptionIndex,
-      isCorrect = isCorrect,
-      responseTimeMs = responseDurationMs,
-      itemDifficultyB = currentItem.difficultyB,
-      itemDiscriminationA = currentItem.discriminationA,
-      posteriorTheta = newTheta,
-      posteriorSe = newSe,
-      itemIndexOrder = state.itemNumber
-    )
-
-    val updatedResponses = state.responses + itemResponse
-
-    // Criterio de parada adaptativo:
-    // 1. Error estándar SE <= 0.30 (después de al menos MIN_ITEMS = 5)
-    // 2. O límite máximo de reactivos alcanzado (MAX_ITEMS = 15)
-    val shouldStop = (state.itemNumber >= IrtEngine.MIN_ITEMS && newSe <= IrtEngine.TARGET_SE_STOPPING) ||
-        (state.itemNumber >= IrtEngine.MAX_ITEMS)
-
-    if (shouldStop) {
-      finalizeAssessment(state.sessionId, newTheta, newSe, updatedResponses, updatedAdministered)
+    val actualSelectedOption = if (isTimeExpired || state.selectedDisplayIndex == null) {
+      -1
     } else {
-      // Balanceo de dominios CHC y Maximum Fisher Information
-      val domainCounts = mutableMapOf(
-        "Gf" to 0, "Gv" to 0, "Gwm" to 0, "Gs" to 0, "Gc" to 0
+      val displayIdx = state.selectedDisplayIndex
+      if (displayIdx in 0..3 && displayIdx < state.optionDisplayOrder.size) {
+        state.optionDisplayOrder[displayIdx]
+      } else {
+        -1
+      }
+    }
+
+    val isCorrect = (actualSelectedOption == currentItem.correctOptionIndex)
+    val updatedAdministered = state.administeredItems
+
+    viewModelScope.launch {
+      // Estimación Bayesiana EAP (Expected A Posteriori)
+      val allCorrectList = state.responses.map { it.isCorrect } + isCorrect
+      val (newTheta, newSe) = IrtEngine.estimateThetaEap(
+        administeredItems = updatedAdministered,
+        responses = allCorrectList
       )
-      updatedAdministered.forEach { item ->
-        domainCounts[item.domainCode] = (domainCounts[item.domainCode] ?: 0) + 1
+
+      val response = ItemResponse(
+        sessionId = state.sessionId,
+        itemId = currentItem.id,
+        itemDomain = currentItem.domainCode,
+        itemDifficultyB = currentItem.difficultyB,
+        itemDiscriminationA = currentItem.discriminationA,
+        selectedOptionIndex = actualSelectedOption,
+        isCorrect = isCorrect,
+        responseTimeMs = responseTimeMs,
+        posteriorTheta = newTheta,
+        posteriorSe = newSe,
+        itemIndexOrder = state.itemNumber
+      )
+
+      val updatedResponses = state.responses + response
+
+      // Criterio de parada adaptativo según batería y modo de longitud configurado
+      val battery = state.testBattery
+      val lengthMode = _aiConfig.value.testLengthMode
+      val minItems = if (battery == TestBattery.FULL_CHC) lengthMode.minItems else battery.minItems
+      val maxItems = if (battery == TestBattery.FULL_CHC) lengthMode.maxItems else battery.maxItems
+      val targetSe = if (battery == TestBattery.FULL_CHC) lengthMode.targetSe else 0.30
+
+      val shouldStop = IrtEngine.checkStoppingCriterion(
+        currentSe = newSe,
+        itemsAdministered = updatedAdministered.size,
+        minItems = minItems,
+        maxItems = maxItems,
+        targetSe = targetSe
+      )
+
+      if (shouldStop) {
+        finalizeAssessment(state.sessionId, newTheta, newSe, updatedResponses, updatedAdministered, battery)
+        return@launch
       }
 
-      val administeredIds = updatedAdministered.map { it.id }.toSet()
+      // Siguiente ítem con control de exposición estocástico Top-K filtrado por la batería elegida
+      val domainCounts = updatedAdministered.groupingBy { it.domainCode }.eachCount()
+      val administeredItemIds = updatedAdministered.map { it.id }.toSet()
       val nextItem = IrtEngine.selectNextItem(
         currentTheta = newTheta,
         availableItems = allAvailableItems,
-        administeredItemIds = administeredIds,
-        domainCounts = domainCounts
+        administeredItemIds = administeredItemIds,
+        domainCounts = domainCounts,
+        allowedDomains = battery.eligibleDomains
       )
 
+
       if (nextItem == null) {
-        finalizeAssessment(state.sessionId, newTheta, newSe, updatedResponses, updatedAdministered)
+        finalizeAssessment(state.sessionId, newTheta, newSe, updatedResponses, updatedAdministered, battery)
       } else {
         val nextAdministeredList = updatedAdministered + nextItem
+        val nextOptionOrder = listOf(0, 1, 2, 3).shuffled()
+
         _activeTestState.value = state.copy(
           currentItem = nextItem,
           itemNumber = state.itemNumber + 1,
@@ -209,7 +292,8 @@ class CatiqViewModel(application: Application) : AndroidViewModel(application) {
           administeredItems = nextAdministeredList,
           responses = updatedResponses,
           itemStartTimeMs = System.currentTimeMillis(),
-          selectedOption = null,
+          selectedDisplayIndex = null,
+          optionDisplayOrder = nextOptionOrder,
           remainingTimeSeconds = nextItem.expectedTimeSeconds
         )
         startItemTimer(nextItem.expectedTimeSeconds)
@@ -222,7 +306,8 @@ class CatiqViewModel(application: Application) : AndroidViewModel(application) {
     finalTheta: Double,
     finalSe: Double,
     responses: List<ItemResponse>,
-    administered: List<PsychometricItem>
+    administered: List<PsychometricItem>,
+    battery: TestBattery
   ) {
     viewModelScope.launch {
       val now = System.currentTimeMillis()
@@ -230,7 +315,7 @@ class CatiqViewModel(application: Application) : AndroidViewModel(application) {
       val (ciLow, ciHigh) = IrtEngine.calculateConfidenceInterval(finalTheta, finalSe)
       val percentile = IrtEngine.calculatePercentile(finalTheta)
 
-      // Telemetría móvil
+      // Telemetría de atención móvil
       val telemetry = MobileAttentionTelemetry.evaluateSession(responses)
 
       // Cálculo de subpuntuaciones CHC normalizadas
@@ -240,7 +325,6 @@ class CatiqViewModel(application: Application) : AndroidViewModel(application) {
         val score = if (domainResponses.isNotEmpty()) {
           val correctCount = domainResponses.count { it.isCorrect }
           val ratio = correctCount.toDouble() / domainResponses.size
-          // Centrado en el theta general con ajuste ipsativo
           val domainTheta = finalTheta + (ratio - 0.5) * 1.2
           IrtEngine.thetaToIq(domainTheta)
         } else {
@@ -279,10 +363,9 @@ class CatiqViewModel(application: Application) : AndroidViewModel(application) {
         gwmScore = Math.round((domainScores[ChcDomain.GWM] ?: iq) * 10.0) / 10.0,
         gsScore = Math.round((domainScores[ChcDomain.GS] ?: iq) * 10.0) / 10.0,
         gcScore = Math.round((domainScores[ChcDomain.GC] ?: iq) * 10.0) / 10.0,
-        diagnosticSummary = clinicalReport.detailedNarrative
+        diagnosticSummary = "${battery.displayName}: ${clinicalReport.detailedNarrative}"
       )
 
-      // Guardar en base de datos local Room
       repository.saveCompletedSession(session, responses)
 
       _reportState.value = ReportState(
@@ -291,6 +374,10 @@ class CatiqViewModel(application: Application) : AndroidViewModel(application) {
         clinicalReport = clinicalReport,
         telemetry = telemetry
       )
+
+      _aiInterpretation.value = session.aiInterpretation
+      _followUpHistory.value = emptyList()
+      _aiError.value = null
 
       _activeTestState.value = _activeTestState.value.copy(isTestCompleted = true)
       _currentScreen.value = AppScreen.REPORT
@@ -326,7 +413,92 @@ class CatiqViewModel(application: Application) : AndroidViewModel(application) {
         telemetry = telemetry
       )
 
+      _aiInterpretation.value = session.aiInterpretation
+      _followUpHistory.value = emptyList()
+      _aiError.value = null
+
       _currentScreen.value = AppScreen.REPORT
+    }
+  }
+
+  fun openAiSettings() {
+    _showAiSettingsDialog.value = true
+  }
+
+  fun closeAiSettings() {
+    _showAiSettingsDialog.value = false
+  }
+
+  fun saveAiConfig(config: AiConsultantConfig) {
+    userPrefs.saveAiConfig(config)
+    _aiConfig.value = config
+  }
+
+  fun testAiConnection(
+    provider: AiProvider,
+    config: AiConsultantConfig,
+    callback: (Boolean, String) -> Unit
+  ) {
+    viewModelScope.launch {
+      val result = aiConsultantService.testConnection(provider, config)
+      result.onSuccess { msg ->
+        callback(true, msg)
+      }.onFailure { err ->
+        callback(false, err.message ?: "Error desconocido al conectar con ${provider.displayName}")
+      }
+    }
+  }
+
+  fun generateAiReport() {
+    val session = _reportState.value.session ?: return
+    val profile = _userProfile.value
+    val config = _aiConfig.value
+
+    _isAiGenerating.value = true
+    _aiError.value = null
+
+    viewModelScope.launch {
+      val result = aiConsultantService.generatePsychometricInterpretation(
+        session = session,
+        profile = profile,
+        config = config
+      )
+
+      _isAiGenerating.value = false
+      result.onSuccess { text ->
+        _aiInterpretation.value = text
+        _aiError.value = null
+        repository.updateAiInterpretation(session.sessionId, text)
+      }.onFailure { error ->
+        _aiError.value = error.message ?: "Ocurrió un error inesperado al consultar el modelo IA."
+      }
+    }
+  }
+
+  fun askAiFollowUp(question: String) {
+    val session = _reportState.value.session ?: return
+    val profile = _userProfile.value
+    val config = _aiConfig.value
+    val currentReport = _aiInterpretation.value
+
+    if (question.isBlank()) return
+
+    _isFollowUpLoading.value = true
+    viewModelScope.launch {
+      val result = aiConsultantService.askFollowUpQuestion(
+        question = question,
+        session = session,
+        profile = profile,
+        previousReport = currentReport,
+        config = config
+      )
+
+      _isFollowUpLoading.value = false
+      result.onSuccess { answer ->
+        _followUpHistory.value = _followUpHistory.value + Pair(question, answer)
+      }.onFailure { err ->
+        _followUpHistory.value = _followUpHistory.value + Pair(question, "Error al procesar consulta: ${err.message}")
+      }
     }
   }
 

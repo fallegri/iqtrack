@@ -35,6 +35,9 @@ interface PsychometricDao {
   @Query("SELECT * FROM item_responses WHERE sessionId = :sessionId ORDER BY itemIndexOrder ASC")
   suspend fun getResponsesForSession(sessionId: String): List<ItemResponse>
 
+  @Query("UPDATE assessment_sessions SET aiInterpretation = :aiInterpretation WHERE sessionId = :sessionId")
+  suspend fun updateAiInterpretation(sessionId: String, aiInterpretation: String)
+
   @Query("DELETE FROM assessment_sessions WHERE sessionId = :sessionId")
   suspend fun deleteSession(sessionId: String)
 

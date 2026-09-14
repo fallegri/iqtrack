@@ -23,5 +23,6 @@ data class AssessmentSession(
   val gwmScore: Double,
   val gsScore: Double,
   val gcScore: Double,
-  val diagnosticSummary: String
+  val diagnosticSummary: String,
+  val aiInterpretation: String = ""
 )

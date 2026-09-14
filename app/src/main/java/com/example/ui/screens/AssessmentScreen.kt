@@ -20,6 +20,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -42,8 +43,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.data.model.PsychometricItem
+import com.example.ui.components.PsychometricOptionVisualizer
 import com.example.ui.components.StimulusVisualizer
 import com.example.ui.theme.MetricGreen
 import com.example.ui.theme.MetricRed
@@ -96,10 +100,11 @@ fun AssessmentScreen(
   Column(
     modifier = modifier
       .fillMaxSize()
-      .padding(horizontal = 20.dp)
+      .background(MaterialTheme.colorScheme.background)
+      .padding(horizontal = 16.dp)
   ) {
-    // Barra superior de progreso y telemetría
-    Spacer(modifier = Modifier.height(10.dp))
+    // 1. Barra superior: Salir, Dominio CHC y Temporizador
+    Spacer(modifier = Modifier.height(8.dp))
     Row(
       modifier = Modifier.fillMaxWidth(),
       horizontalArrangement = Arrangement.SpaceBetween,
@@ -107,7 +112,9 @@ fun AssessmentScreen(
     ) {
       IconButton(
         onClick = { showExitDialog = true },
-        modifier = Modifier.size(40.dp)
+        modifier = Modifier
+          .size(36.dp)
+          .testTag("exit_assessment_button")
       ) {
         Icon(
           imageVector = Icons.AutoMirrored.Filled.ArrowBack,
@@ -116,18 +123,19 @@ fun AssessmentScreen(
         )
       }
 
-      // Dominio CHC
+      // Dominio CHC Pill
       Box(
         modifier = Modifier
-          .background(item.domain.color.copy(alpha = 0.15f), RoundedCornerShape(20.dp))
-          .border(1.dp, item.domain.color.copy(alpha = 0.6f), RoundedCornerShape(20.dp))
-          .padding(horizontal = 12.dp, vertical = 4.dp)
+          .background(item.domain.color.copy(alpha = 0.15f), RoundedCornerShape(16.dp))
+          .border(1.dp, item.domain.color.copy(alpha = 0.6f), RoundedCornerShape(16.dp))
+          .padding(horizontal = 10.dp, vertical = 4.dp)
       ) {
         Text(
           text = "${item.domain.code} • ${item.domain.fullName}",
           style = MaterialTheme.typography.labelSmall,
           fontWeight = FontWeight.Bold,
-          color = item.domain.color
+          color = item.domain.color,
+          fontSize = 11.sp
         )
       }
 
@@ -140,182 +148,239 @@ fun AssessmentScreen(
 
       Row(
         modifier = Modifier
-          .background(timerColor.copy(alpha = 0.15f), RoundedCornerShape(16.dp))
-          .padding(horizontal = 10.dp, vertical = 4.dp),
+          .background(timerColor.copy(alpha = 0.15f), RoundedCornerShape(14.dp))
+          .padding(horizontal = 8.dp, vertical = 3.dp),
         verticalAlignment = Alignment.CenterVertically
       ) {
         Icon(
           imageVector = Icons.Default.Timer,
           contentDescription = null,
           tint = timerColor,
-          modifier = Modifier.size(16.dp)
+          modifier = Modifier.size(14.dp)
         )
         Spacer(modifier = Modifier.width(4.dp))
         Text(
           text = "${state.remainingTimeSeconds}s",
           fontWeight = FontWeight.Bold,
-          fontSize = 13.sp,
+          fontSize = 12.sp,
           color = timerColor
         )
       }
     }
 
-    Spacer(modifier = Modifier.height(10.dp))
+    Spacer(modifier = Modifier.height(6.dp))
 
-    // Indicador de convergencia de error estándar
+    // 2. Progreso métrico de convergencia IRT
     Row(
       modifier = Modifier.fillMaxWidth(),
       horizontalArrangement = Arrangement.SpaceBetween,
       verticalAlignment = Alignment.CenterVertically
     ) {
       Text(
-        text = "Reactivo ${state.itemNumber} de 15",
-        style = MaterialTheme.typography.labelMedium,
+        text = "Reactivo ${state.itemNumber} de ${state.testBattery.maxItems} • ${state.testBattery.displayName}",
+        style = MaterialTheme.typography.labelSmall,
         fontWeight = FontWeight.SemiBold,
         color = MaterialTheme.colorScheme.onSurface
       )
       Text(
         text = "SE: ${String.format("%.2f", state.currentSe)} (meta ≤ 0.30)",
         style = MaterialTheme.typography.labelSmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        fontSize = 10.sp
       )
     }
 
-    Spacer(modifier = Modifier.height(6.dp))
+    Spacer(modifier = Modifier.height(4.dp))
 
-    // Barra de progreso de precisión psicométrica
     val precisionProgress = ((1.0 - (state.currentSe - 0.30).coerceAtLeast(0.0) / 0.70)).toFloat().coerceIn(0.1f, 1f)
     LinearProgressIndicator(
       progress = { precisionProgress },
       modifier = Modifier
         .fillMaxWidth()
-        .height(6.dp),
+        .height(4.dp),
       color = PrimaryBlueDark,
       trackColor = MaterialTheme.colorScheme.surfaceVariant
     )
 
-    Spacer(modifier = Modifier.height(14.dp))
+    Spacer(modifier = Modifier.height(8.dp))
 
-    // Contenido desplazable con estímulo y opciones
+    // 3. Contenedor principal con estímulo, prompt y alternativas en cuadrícula 2x2
     Column(
       modifier = Modifier
         .weight(1f)
         .verticalScroll(rememberScrollState()),
-      verticalArrangement = Arrangement.spacedBy(14.dp)
-    ) {
-      // Estímulo Gráfico / Cognitivo
-      StimulusVisualizer(item = item)
-
-      // Instrucción / Pregunta
-      Text(
-        text = item.prompt,
-        style = MaterialTheme.typography.titleMedium,
-        fontWeight = FontWeight.SemiBold,
-        color = MaterialTheme.colorScheme.onSurface,
-        lineHeight = 22.sp
-      )
-
-      // 4 Opciones de Respuesta
-      Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        for (index in 0..3) {
-          val optionText = item.getOption(index)
-          val isSelected = (state.selectedOption == index)
-          val letter = ('A' + index).toString()
-
-          Card(
-            modifier = Modifier
-              .fillMaxWidth()
-              .clickable { onSelectOption(index) }
-              .testTag("option_${letter.lowercase()}"),
-            shape = RoundedCornerShape(14.dp),
-            colors = CardDefaults.cardColors(
-              containerColor = if (isSelected)
-                item.domain.color.copy(alpha = 0.18f)
-              else MaterialTheme.colorScheme.surfaceVariant
-            ),
-            border = androidx.compose.foundation.BorderStroke(
-              width = if (isSelected) 2.dp else 1.dp,
-              color = if (isSelected) item.domain.color else MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
-            )
-          ) {
-            Row(
-              modifier = Modifier
-                .fillMaxWidth()
-                .padding(14.dp),
-              verticalAlignment = Alignment.CenterVertically
-            ) {
-              Box(
-                modifier = Modifier
-                  .size(32.dp)
-                  .background(
-                    if (isSelected) item.domain.color else MaterialTheme.colorScheme.surface,
-                    CircleShape
-                  )
-                  .border(
-                    1.dp,
-                    if (isSelected) item.domain.color else MaterialTheme.colorScheme.outline,
-                    CircleShape
-                  ),
-                contentAlignment = Alignment.Center
-              ) {
-                Text(
-                  text = letter,
-                  fontWeight = FontWeight.Bold,
-                  color = if (isSelected) Color.Black else MaterialTheme.colorScheme.onSurface,
-                  fontSize = 14.sp
-                )
-              }
-
-              Spacer(modifier = Modifier.width(14.dp))
-
-              Text(
-                text = optionText,
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                color = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.weight(1f)
-              )
-            }
-          }
-        }
-      }
-
-      Spacer(modifier = Modifier.height(10.dp))
-    }
-
-    // Botón inferior de confirmación
-    Column(
-      modifier = Modifier
-        .fillMaxWidth()
-        .padding(vertical = 12.dp),
+      verticalArrangement = Arrangement.spacedBy(10.dp),
       horizontalAlignment = Alignment.CenterHorizontally
     ) {
-      Button(
-        onClick = onSubmitAnswer,
-        enabled = state.selectedOption != null,
+      // Estímulo Gráfico / Cognitivo (Compacto)
+      StimulusVisualizer(item = item)
+
+      // Instrucción / Pregunta breve
+      Text(
+        text = item.prompt,
+        style = MaterialTheme.typography.bodyMedium,
+        fontWeight = FontWeight.SemiBold,
+        color = MaterialTheme.colorScheme.onSurface,
+        textAlign = TextAlign.Center,
+        lineHeight = 18.sp,
+        modifier = Modifier.fillMaxWidth()
+      )
+
+      // 4 Alternativas de Respuesta en Cuadrícula 2x2
+      // Diseñado para caber completamente en pantalla móvil sin requerir scroll
+      Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+      ) {
+        // Fila 1: Opciones A y B
+        Row(
+          modifier = Modifier.fillMaxWidth(),
+          horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+          OptionCard(
+            displaySlot = 0,
+            item = item,
+            state = state,
+            onSelectOption = onSelectOption,
+            modifier = Modifier.weight(1f)
+          )
+          OptionCard(
+            displaySlot = 1,
+            item = item,
+            state = state,
+            onSelectOption = onSelectOption,
+            modifier = Modifier.weight(1f)
+          )
+        }
+
+        // Fila 2: Opciones C y D
+        Row(
+          modifier = Modifier.fillMaxWidth(),
+          horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+          OptionCard(
+            displaySlot = 2,
+            item = item,
+            state = state,
+            onSelectOption = onSelectOption,
+            modifier = Modifier.weight(1f)
+          )
+          OptionCard(
+            displaySlot = 3,
+            item = item,
+            state = state,
+            onSelectOption = onSelectOption,
+            modifier = Modifier.weight(1f)
+          )
+        }
+      }
+    }
+
+    Spacer(modifier = Modifier.height(8.dp))
+
+    // 4. Botón de Confirmación de Respuesta
+    val hasSelectedOption = state.selectedDisplayIndex != null
+    Button(
+      onClick = onSubmitAnswer,
+      enabled = hasSelectedOption,
+      modifier = Modifier
+        .fillMaxWidth()
+        .height(48.dp)
+        .testTag("submit_answer_button"),
+      shape = RoundedCornerShape(12.dp),
+      colors = ButtonDefaults.buttonColors(
+        containerColor = PrimaryBlueDark,
+        disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant
+      )
+    ) {
+      Icon(
+        imageVector = Icons.Default.Check,
+        contentDescription = null,
+        tint = if (hasSelectedOption) Color.Black else MaterialTheme.colorScheme.onSurfaceVariant
+      )
+      Spacer(modifier = Modifier.width(8.dp))
+      Text(
+        text = if (hasSelectedOption) "Confirmar Respuesta" else "Selecciona una Opción",
+        fontWeight = FontWeight.Bold,
+        fontSize = 15.sp,
+        color = if (hasSelectedOption) Color.Black else MaterialTheme.colorScheme.onSurfaceVariant
+      )
+    }
+
+    Spacer(modifier = Modifier.height(10.dp))
+  }
+}
+
+@Composable
+private fun OptionCard(
+  displaySlot: Int,
+  item: PsychometricItem,
+  state: ActiveTestState,
+  onSelectOption: (Int) -> Unit,
+  modifier: Modifier = Modifier
+) {
+  val actualIndex = state.optionDisplayOrder.getOrElse(displaySlot) { displaySlot }
+  val optionText = item.getOption(actualIndex)
+  val isSelected = (state.selectedDisplayIndex == displaySlot)
+  val displayLetter = ('A' + displaySlot).toString()
+
+  Card(
+    modifier = modifier
+      .height(78.dp)
+      .clickable { onSelectOption(displaySlot) }
+      .testTag("option_${displayLetter.lowercase()}"),
+    shape = RoundedCornerShape(12.dp),
+    colors = CardDefaults.cardColors(
+      containerColor = if (isSelected) {
+        item.domain.color.copy(alpha = 0.20f)
+      } else {
+        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f)
+      }
+    ),
+    border = if (isSelected) {
+      androidx.compose.foundation.BorderStroke(2.dp, item.domain.color)
+    } else {
+      androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.4f))
+    }
+  ) {
+    Box(
+      modifier = Modifier
+        .fillMaxSize()
+        .padding(6.dp)
+    ) {
+      // Badge con la letra (A, B, C, D) en la esquina superior izquierda
+      Box(
         modifier = Modifier
-          .fillMaxWidth()
-          .height(52.dp)
-          .testTag("confirm_answer_button"),
-        colors = ButtonDefaults.buttonColors(containerColor = PrimaryBlueDark),
-        shape = RoundedCornerShape(14.dp)
+          .size(22.dp)
+          .background(
+            if (isSelected) item.domain.color else MaterialTheme.colorScheme.surface,
+            CircleShape
+          )
+          .align(Alignment.TopStart),
+        contentAlignment = Alignment.Center
       ) {
         Text(
-          text = "Confirmar Respuesta",
-          fontWeight = FontWeight.Bold,
-          fontSize = 16.sp,
-          color = Color.Black
+          text = displayLetter,
+          fontWeight = FontWeight.Black,
+          fontSize = 11.sp,
+          color = if (isSelected) Color.Black else MaterialTheme.colorScheme.onSurface
         )
       }
 
-      Spacer(modifier = Modifier.height(6.dp))
-
-      Text(
-        text = "Telemetría táctil y tiempo de deliberación activos",
-        style = MaterialTheme.typography.labelSmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-        fontSize = 10.sp
-      )
+      // Visualización Gráfica o Token de la Opción en el Centro
+      Box(
+        modifier = Modifier
+          .fillMaxSize()
+          .padding(start = 22.dp),
+        contentAlignment = Alignment.Center
+      ) {
+        PsychometricOptionVisualizer(
+          item = item,
+          optionText = optionText,
+          isSelected = isSelected,
+          modifier = Modifier.fillMaxSize()
+        )
+      }
     }
   }
 }

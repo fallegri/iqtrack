@@ -41,6 +41,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.model.ChcDomain
+import com.example.data.ai.AiConsultantConfig
+import com.example.ui.components.AiConsultantCard
 import com.example.ui.components.ChcProfileChart
 import com.example.ui.components.IqScoreGauge
 import com.example.ui.components.ThetaConvergenceChart
@@ -54,6 +56,15 @@ import com.example.ui.viewmodel.ReportState
 @Composable
 fun ReportScreen(
   state: ReportState,
+  aiConfig: AiConsultantConfig,
+  aiInterpretation: String,
+  isAiGenerating: Boolean,
+  aiError: String?,
+  followUpList: List<Pair<String, String>>,
+  isFollowUpLoading: Boolean,
+  onGenerateAiReport: () -> Unit,
+  onOpenAiSettings: () -> Unit,
+  onAskAiFollowUp: (String) -> Unit,
   onBackToDashboard: () -> Unit,
   modifier: Modifier = Modifier
 ) {
@@ -146,6 +157,21 @@ fun ReportScreen(
       RagClinicalNarrativeCard(
         clinical = clinical,
         domainScores = domainScores
+      )
+    }
+
+    // Consultor Neuropsicológico IA Multi-Proveedor (Gemini, ChatGPT, Claude, NVIDIA NIM)
+    item {
+      AiConsultantCard(
+        aiConfig = aiConfig,
+        reportText = aiInterpretation,
+        isGenerating = isAiGenerating,
+        errorMessage = aiError,
+        followUpList = followUpList,
+        isFollowUpLoading = isFollowUpLoading,
+        onGenerateReport = onGenerateAiReport,
+        onOpenSettings = onOpenAiSettings,
+        onAskFollowUp = onAskAiFollowUp
       )
     }
 

@@ -11,17 +11,17 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.tooling.preview.Preview
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.ui.components.AiSettingsDialog
+import com.example.ui.screens.AboutScreen
 import com.example.ui.screens.AssessmentScreen
 import com.example.ui.screens.HomeScreen
 import com.example.ui.screens.ReportScreen
-import com.example.ui.screens.SddArchitectureScreen
+import com.example.ui.screens.UserRegistrationScreen
 import com.example.ui.theme.MyApplicationTheme
 import com.example.ui.viewmodel.AppScreen
 import com.example.ui.viewmodel.CatiqViewModel
@@ -42,8 +42,18 @@ class MainActivity : ComponentActivity() {
 fun CatiqApp(viewModel: CatiqViewModel = viewModel()) {
   val currentScreen by viewModel.currentScreen.collectAsStateWithLifecycle()
   val sessions by viewModel.sessions.collectAsStateWithLifecycle()
+  val userProfile by viewModel.userProfile.collectAsStateWithLifecycle()
+  val selectedBattery by viewModel.selectedBattery.collectAsStateWithLifecycle()
   val activeTestState by viewModel.activeTestState.collectAsStateWithLifecycle()
   val reportState by viewModel.reportState.collectAsStateWithLifecycle()
+
+  val aiConfig by viewModel.aiConfig.collectAsStateWithLifecycle()
+  val aiInterpretation by viewModel.aiInterpretation.collectAsStateWithLifecycle()
+  val isAiGenerating by viewModel.isAiGenerating.collectAsStateWithLifecycle()
+  val aiError by viewModel.aiError.collectAsStateWithLifecycle()
+  val followUpList by viewModel.followUpHistory.collectAsStateWithLifecycle()
+  val isFollowUpLoading by viewModel.isFollowUpLoading.collectAsStateWithLifecycle()
+  val showAiSettingsDialog by viewModel.showAiSettingsDialog.collectAsStateWithLifecycle()
 
   Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
     AnimatedContent(
@@ -55,8 +65,15 @@ fun CatiqApp(viewModel: CatiqViewModel = viewModel()) {
       when (screen) {
         AppScreen.DASHBOARD -> HomeScreen(
           sessions = sessions,
+          userProfile = userProfile,
+          selectedBattery = selectedBattery,
+          aiConfig = aiConfig,
+          onSelectBattery = { battery -> viewModel.selectBattery(battery) },
           onStartAssessment = { viewModel.startNewAssessment() },
-          onViewArchitecture = { viewModel.navigateTo(AppScreen.SDD_ARCHITECTURE) },
+          onViewLatestSession = { viewModel.viewLatestSession() },
+          onViewAbout = { viewModel.navigateTo(AppScreen.ABOUT) },
+          onEditProfile = { viewModel.navigateTo(AppScreen.USER_REGISTRATION) },
+          onOpenAiSettings = { viewModel.openAiSettings() },
           onSelectSession = { session -> viewModel.viewSessionReport(session) }
         )
         AppScreen.ACTIVE_TEST -> AssessmentScreen(
@@ -67,24 +84,37 @@ fun CatiqApp(viewModel: CatiqViewModel = viewModel()) {
         )
         AppScreen.REPORT -> ReportScreen(
           state = reportState,
+          aiConfig = aiConfig,
+          aiInterpretation = aiInterpretation,
+          isAiGenerating = isAiGenerating,
+          aiError = aiError,
+          followUpList = followUpList,
+          isFollowUpLoading = isFollowUpLoading,
+          onGenerateAiReport = { viewModel.generateAiReport() },
+          onOpenAiSettings = { viewModel.openAiSettings() },
+          onAskAiFollowUp = { question -> viewModel.askAiFollowUp(question) },
           onBackToDashboard = { viewModel.navigateTo(AppScreen.DASHBOARD) }
         )
-        AppScreen.SDD_ARCHITECTURE -> SddArchitectureScreen(
+        AppScreen.ABOUT -> AboutScreen(
           onBack = { viewModel.navigateTo(AppScreen.DASHBOARD) }
+        )
+        AppScreen.USER_REGISTRATION -> UserRegistrationScreen(
+          currentProfile = userProfile,
+          onSaveProfile = { profile -> viewModel.saveUserProfile(profile) },
+          onCancel = { viewModel.navigateTo(AppScreen.DASHBOARD) }
         )
       }
     }
+
+    if (showAiSettingsDialog) {
+      AiSettingsDialog(
+        currentConfig = aiConfig,
+        onDismiss = { viewModel.closeAiSettings() },
+        onSaveConfig = { newConfig -> viewModel.saveAiConfig(newConfig) },
+        onTestConnection = { provider, config, callback ->
+          viewModel.testAiConnection(provider, config, callback)
+        }
+      )
+    }
   }
 }
-
-@Composable
-fun Greeting(name: String, modifier: Modifier = Modifier) {
-  Text(text = "Hello $name!", modifier = modifier)
-}
-
-@Preview(showBackground = true)
-@Composable
-fun GreetingPreview() {
-  MyApplicationTheme { Greeting("Android") }
-}
-

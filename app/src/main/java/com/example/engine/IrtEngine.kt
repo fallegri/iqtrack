@@ -41,6 +41,9 @@ object IrtEngine {
     return c + (1.0 - c) / (1.0 + safeExp)
   }
 
+  fun probability3PL(theta: Double, a: Double, b: Double, c: Double): Double =
+    calculateProbability(theta, a, b, c)
+
   /**
    * Función de Información de Fisher I_i(theta) para el ítem i
    */
@@ -53,6 +56,9 @@ object IrtEngine {
     val den = (1.0 - c).pow(2) * p
     return if (den > 0.0) num / den else 0.0
   }
+
+  fun fisherInformation(theta: Double, a: Double, b: Double, c: Double): Double =
+    calculateFisherInformation(theta, a, b, c)
 
   /**
    * Información total de prueba acumulada en theta: I(theta) = sum(I_i(theta))
@@ -74,7 +80,25 @@ object IrtEngine {
   /**
    * Estimación Bayesiana EAP (Expected A Posteriori) dado el historial de respuestas
    */
+  fun estimateThetaEAP(
+    administeredItems: List<PsychometricItem>,
+    responses: List<Boolean>
+  ): Pair<Double, Double> = estimateThetaEap(administeredItems, responses)
+
+  fun checkStoppingCriterion(
+    currentSe: Double,
+    itemsAdministered: Int,
+    minItems: Int = 6,
+    maxItems: Int = 15,
+    targetSe: Double = 0.30
+  ): Boolean {
+    if (itemsAdministered >= maxItems) return true
+    if (itemsAdministered < minItems) return false
+    return currentSe <= targetSe
+  }
+
   fun estimateThetaEap(
+
     administeredItems: List<PsychometricItem>,
     responses: List<Boolean>
   ): Pair<Double, Double> {
@@ -127,34 +151,52 @@ object IrtEngine {
   }
 
   /**
-   * Algoritmo de selección adaptativa:
-   * Combina Maximum Fisher Information (MFI) con balanceo de dominios CHC (Kingsbury-Zarachara).
+   * Algoritmo de selección adaptativa estocástica (Sympson-Hetter / Top-K randomization):
+   * Combina Maximum Fisher Information (MFI) con balanceo de dominios CHC (Kingsbury-Zarachara)
+   * y selección probabilística controlada para prevenir repetición sistemática de secuencias.
    */
   fun selectNextItem(
     currentTheta: Double,
     availableItems: List<PsychometricItem>,
     administeredItemIds: Set<String>,
-    domainCounts: Map<String, Int>
+    domainCounts: Map<String, Int>,
+    allowedDomains: List<String>? = null
   ): PsychometricItem? {
-    val candidates = availableItems.filter { it.id !in administeredItemIds }
+    val baseCandidates = availableItems.filter { it.id !in administeredItemIds }
+    val candidates = if (allowedDomains != null && allowedDomains.isNotEmpty()) {
+      baseCandidates.filter { it.domainCode in allowedDomains }
+    } else {
+      baseCandidates
+    }
     if (candidates.isEmpty()) return null
 
-    // Encontrar qué dominios CHC tienen menor exposición para forzar balanceo
-    val minCount = domainCounts.values.minOrNull() ?: 0
-    val prioritizedDomains = domainCounts.filter { it.value == minCount }.keys
+    // Balanceo de dominios elegibles
+    val eligibleDomainCounts = if (allowedDomains != null && allowedDomains.isNotEmpty()) {
+      domainCounts.filterKeys { it in allowedDomains }
+    } else {
+      domainCounts
+    }
+
+    val minCount = eligibleDomainCounts.values.minOrNull() ?: 0
+    val prioritizedDomains = eligibleDomainCounts.filter { it.value == minCount }.keys
 
     val domainPool = candidates.filter { it.domainCode in prioritizedDomains }
     val selectionPool = if (domainPool.isNotEmpty()) domainPool else candidates
 
-    // Seleccionar ítem con Máxima Información de Fisher en la habilidad actual
-    return selectionPool.maxByOrNull { item ->
-      calculateFisherInformation(
+    // Ordenar por Información de Fisher en theta actual
+    val scoredCandidates = selectionPool.map { item ->
+      val info = calculateFisherInformation(
         currentTheta,
         item.discriminationA,
         item.difficultyB,
         item.guessingC
       )
-    }
+      Pair(item, info)
+    }.sortedByDescending { it.second }
+
+    // Top-K estocástico (seleccionar aleatoriamente entre los mejores 3 candidatos para no repetir orden idéntico)
+    val topK = scoredCandidates.take(3)
+    return topK.randomOrNull()?.first ?: scoredCandidates.firstOrNull()?.first
   }
 
   /**
