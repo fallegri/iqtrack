@@ -44,6 +44,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.model.PsychometricItem
@@ -101,64 +102,55 @@ fun AssessmentScreen(
     modifier = modifier
       .fillMaxSize()
       .background(MaterialTheme.colorScheme.background)
-      .padding(horizontal = 16.dp)
+      .padding(horizontal = 14.dp, vertical = 6.dp)
   ) {
-    // 1. Barra superior: Salir, Dominio CHC y Temporizador
-    Spacer(modifier = Modifier.height(8.dp))
+    // 1. Barra superior unificada y compacta (sólo ~34.dp)
     Row(
-      modifier = Modifier.fillMaxWidth(),
+      modifier = Modifier
+        .fillMaxWidth()
+        .padding(bottom = 2.dp),
       horizontalArrangement = Arrangement.SpaceBetween,
       verticalAlignment = Alignment.CenterVertically
     ) {
       IconButton(
         onClick = { showExitDialog = true },
         modifier = Modifier
-          .size(36.dp)
+          .size(30.dp)
           .testTag("exit_assessment_button")
       ) {
         Icon(
           imageVector = Icons.AutoMirrored.Filled.ArrowBack,
           contentDescription = "Salir",
-          tint = MaterialTheme.colorScheme.onSurface
+          tint = MaterialTheme.colorScheme.onSurface,
+          modifier = Modifier.size(18.dp)
         )
       }
 
-      // Dominio CHC Pill
-      Box(
-        modifier = Modifier
-          .background(item.domain.color.copy(alpha = 0.15f), RoundedCornerShape(16.dp))
-          .border(1.dp, item.domain.color.copy(alpha = 0.6f), RoundedCornerShape(16.dp))
-          .padding(horizontal = 10.dp, vertical = 4.dp)
-      ) {
-        Text(
-          text = "${item.domain.code} • ${item.domain.fullName}",
-          style = MaterialTheme.typography.labelSmall,
-          fontWeight = FontWeight.Bold,
-          color = item.domain.color,
-          fontSize = 11.sp
-        )
-      }
+      // Pregunta X de Y + Dominio CHC en una sola cápsula compacta
+      Text(
+        text = "Pregunta ${state.itemNumber}/${state.testBattery.maxItems} • ${item.domain.code} (${item.domain.fullName})",
+        style = MaterialTheme.typography.labelSmall,
+        fontWeight = FontWeight.Bold,
+        color = item.domain.color,
+        fontSize = 11.sp
+      )
 
-      // Temporizador de reactivo
+      // Temporizador compacto
       val timerColor = when {
         state.remainingTimeSeconds <= 5 -> MetricRed
         state.remainingTimeSeconds <= 10 -> MetricYellow
         else -> MaterialTheme.colorScheme.primary
       }
-
       Row(
-        modifier = Modifier
-          .background(timerColor.copy(alpha = 0.15f), RoundedCornerShape(14.dp))
-          .padding(horizontal = 8.dp, vertical = 3.dp),
-        verticalAlignment = Alignment.CenterVertically
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(3.dp)
       ) {
         Icon(
           imageVector = Icons.Default.Timer,
           contentDescription = null,
           tint = timerColor,
-          modifier = Modifier.size(14.dp)
+          modifier = Modifier.size(13.dp)
         )
-        Spacer(modifier = Modifier.width(4.dp))
         Text(
           text = "${state.remainingTimeSeconds}s",
           fontWeight = FontWeight.Bold,
@@ -168,110 +160,69 @@ fun AssessmentScreen(
       }
     }
 
-    Spacer(modifier = Modifier.height(6.dp))
-
-    // 2. Progreso métrico de convergencia IRT
-    Row(
-      modifier = Modifier.fillMaxWidth(),
-      horizontalArrangement = Arrangement.SpaceBetween,
-      verticalAlignment = Alignment.CenterVertically
-    ) {
-      Text(
-        text = "Reactivo ${state.itemNumber} de ${state.testBattery.maxItems} • ${state.testBattery.displayName}",
-        style = MaterialTheme.typography.labelSmall,
-        fontWeight = FontWeight.SemiBold,
-        color = MaterialTheme.colorScheme.onSurface
-      )
-      Text(
-        text = "SE: ${String.format("%.2f", state.currentSe)} (meta ≤ 0.30)",
-        style = MaterialTheme.typography.labelSmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-        fontSize = 10.sp
-      )
-    }
-
-    Spacer(modifier = Modifier.height(4.dp))
-
+    // Barra de convergencia IRT ultra-delgada (2.dp)
     val precisionProgress = ((1.0 - (state.currentSe - 0.30).coerceAtLeast(0.0) / 0.70)).toFloat().coerceIn(0.1f, 1f)
     LinearProgressIndicator(
       progress = { precisionProgress },
       modifier = Modifier
         .fillMaxWidth()
-        .height(4.dp),
+        .height(2.dp),
       color = PrimaryBlueDark,
       trackColor = MaterialTheme.colorScheme.surfaceVariant
     )
 
-    Spacer(modifier = Modifier.height(4.dp))
+    // 2. Validador en EXACTAMENTE UNA SOLA LÍNEA DE TEXTO (ocupa espacio mínimo vertical)
+    Text(
+      text = "✓ Validador Anti-Repetición: 100% preguntas únicas garantizadas",
+      style = MaterialTheme.typography.labelSmall,
+      fontSize = 10.sp,
+      color = MetricGreen,
+      fontWeight = FontWeight.Medium,
+      maxLines = 1,
+      overflow = TextOverflow.Ellipsis,
+      modifier = Modifier
+        .fillMaxWidth()
+        .padding(vertical = 2.dp)
+    )
 
-    // Badge de Validación Anti-Repetición
-    Row(
-      modifier = Modifier.fillMaxWidth(),
-      horizontalArrangement = Arrangement.SpaceBetween,
-      verticalAlignment = Alignment.CenterVertically
-    ) {
-      Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(4.dp)
-      ) {
-        Icon(
-          imageVector = Icons.Default.Check,
-          contentDescription = null,
-          tint = MetricGreen,
-          modifier = Modifier.size(12.dp)
-        )
-        Text(
-          text = "Validador Anti-Repetición: Activo (100% reactivos únicos)",
-          style = MaterialTheme.typography.labelSmall,
-          fontSize = 10.sp,
-          color = MetricGreen,
-          fontWeight = FontWeight.Medium
-        )
-      }
-      if (state.recentExcludedItemIds.isNotEmpty()) {
-        Text(
-          text = "${state.recentExcludedItemIds.size} ítems en cooldown",
-          style = MaterialTheme.typography.labelSmall,
-          fontSize = 10.sp,
-          color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-      }
-    }
-
-    Spacer(modifier = Modifier.height(6.dp))
-
-    // 3. Contenedor principal con estímulo, prompt y alternativas en cuadrícula 2x2
+    // 3. Contenedor principal con amplio espacio para la pregunta, el estímulo y las opciones
     Column(
       modifier = Modifier
         .weight(1f)
+        .fillMaxWidth()
         .verticalScroll(rememberScrollState()),
-      verticalArrangement = Arrangement.spacedBy(10.dp),
+      verticalArrangement = Arrangement.spacedBy(8.dp),
       horizontalAlignment = Alignment.CenterHorizontally
     ) {
-      // Estímulo Gráfico / Cognitivo (Compacto)
-      StimulusVisualizer(item = item)
-
-      // Instrucción / Pregunta breve
+      // PREGUNTA: Espacio amplio, texto grande, visible y destacado
       Text(
         text = item.prompt,
-        style = MaterialTheme.typography.bodyMedium,
-        fontWeight = FontWeight.SemiBold,
+        style = MaterialTheme.typography.titleMedium,
+        fontWeight = FontWeight.Bold,
+        fontSize = 15.sp,
+        lineHeight = 20.sp,
         color = MaterialTheme.colorScheme.onSurface,
         textAlign = TextAlign.Center,
-        lineHeight = 18.sp,
-        modifier = Modifier.fillMaxWidth()
+        modifier = Modifier
+          .fillMaxWidth()
+          .padding(horizontal = 6.dp, vertical = 2.dp)
       )
 
-      // 4 Alternativas de Respuesta en Cuadrícula 2x2
-      // Diseñado para caber completamente en pantalla móvil sin requerir scroll
+      // Estímulo Gráfico / Cognitivo (Proporcionado y compacto)
+      StimulusVisualizer(
+        item = item,
+        modifier = Modifier.padding(horizontal = 4.dp)
+      )
+
+      // 4 Alternativas de Respuesta en Cuadrícula 2x2 optimizada
       Column(
         modifier = Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
+        verticalArrangement = Arrangement.spacedBy(6.dp)
       ) {
         // Fila 1: Opciones A y B
         Row(
           modifier = Modifier.fillMaxWidth(),
-          horizontalArrangement = Arrangement.spacedBy(8.dp)
+          horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
           OptionCard(
             displaySlot = 0,
@@ -292,7 +243,7 @@ fun AssessmentScreen(
         // Fila 2: Opciones C y D
         Row(
           modifier = Modifier.fillMaxWidth(),
-          horizontalArrangement = Arrangement.spacedBy(8.dp)
+          horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
           OptionCard(
             displaySlot = 2,
@@ -312,18 +263,16 @@ fun AssessmentScreen(
       }
     }
 
-    Spacer(modifier = Modifier.height(8.dp))
-
-    // 4. Botón de Confirmación de Respuesta
+    // 4. Botón de Confirmación compacto al pie
     val hasSelectedOption = state.selectedDisplayIndex != null
     Button(
       onClick = onSubmitAnswer,
       enabled = hasSelectedOption,
       modifier = Modifier
         .fillMaxWidth()
-        .height(48.dp)
+        .height(44.dp)
         .testTag("submit_answer_button"),
-      shape = RoundedCornerShape(12.dp),
+      shape = RoundedCornerShape(10.dp),
       colors = ButtonDefaults.buttonColors(
         containerColor = PrimaryBlueDark,
         disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant
@@ -332,18 +281,17 @@ fun AssessmentScreen(
       Icon(
         imageVector = Icons.Default.Check,
         contentDescription = null,
-        tint = if (hasSelectedOption) Color.Black else MaterialTheme.colorScheme.onSurfaceVariant
+        tint = if (hasSelectedOption) Color.Black else MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.size(16.dp)
       )
-      Spacer(modifier = Modifier.width(8.dp))
+      Spacer(modifier = Modifier.width(6.dp))
       Text(
         text = if (hasSelectedOption) "Confirmar Respuesta" else "Selecciona una Opción",
         fontWeight = FontWeight.Bold,
-        fontSize = 15.sp,
+        fontSize = 14.sp,
         color = if (hasSelectedOption) Color.Black else MaterialTheme.colorScheme.onSurfaceVariant
       )
     }
-
-    Spacer(modifier = Modifier.height(10.dp))
   }
 }
 
@@ -362,32 +310,32 @@ private fun OptionCard(
 
   Card(
     modifier = modifier
-      .height(78.dp)
+      .height(62.dp)
       .clickable { onSelectOption(displaySlot) }
       .testTag("option_${displayLetter.lowercase()}"),
-    shape = RoundedCornerShape(12.dp),
+    shape = RoundedCornerShape(10.dp),
     colors = CardDefaults.cardColors(
       containerColor = if (isSelected) {
-        item.domain.color.copy(alpha = 0.20f)
+        item.domain.color.copy(alpha = 0.18f)
       } else {
-        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f)
+        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.65f)
       }
     ),
     border = if (isSelected) {
-      androidx.compose.foundation.BorderStroke(2.dp, item.domain.color)
+      androidx.compose.foundation.BorderStroke(1.8.dp, item.domain.color)
     } else {
-      androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.4f))
+      androidx.compose.foundation.BorderStroke(0.8.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.35f))
     }
   ) {
     Box(
       modifier = Modifier
         .fillMaxSize()
-        .padding(6.dp)
+        .padding(4.dp)
     ) {
       // Badge con la letra (A, B, C, D) en la esquina superior izquierda
       Box(
         modifier = Modifier
-          .size(22.dp)
+          .size(20.dp)
           .background(
             if (isSelected) item.domain.color else MaterialTheme.colorScheme.surface,
             CircleShape
@@ -398,16 +346,16 @@ private fun OptionCard(
         Text(
           text = displayLetter,
           fontWeight = FontWeight.Black,
-          fontSize = 11.sp,
+          fontSize = 10.sp,
           color = if (isSelected) Color.Black else MaterialTheme.colorScheme.onSurface
         )
       }
 
-      // Visualización Gráfica o Token de la Opción en el Centro
+      // Visualización Gráfica o Texto de la Opción en el Centro
       Box(
         modifier = Modifier
           .fillMaxSize()
-          .padding(start = 22.dp),
+          .padding(start = 20.dp, end = 2.dp),
         contentAlignment = Alignment.Center
       ) {
         PsychometricOptionVisualizer(

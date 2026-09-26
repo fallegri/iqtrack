@@ -42,11 +42,11 @@ fun StimulusVisualizer(
     modifier = modifier
       .fillMaxWidth()
       .background(
-        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-        RoundedCornerShape(14.dp)
+        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+        RoundedCornerShape(12.dp)
       )
-      .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.4f), RoundedCornerShape(14.dp))
-      .padding(horizontal = 10.dp, vertical = 8.dp),
+      .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f), RoundedCornerShape(12.dp))
+      .padding(horizontal = 8.dp, vertical = 4.dp),
     contentAlignment = Alignment.Center
   ) {
     when (item.domain) {
@@ -63,15 +63,15 @@ fun StimulusVisualizer(
 private fun MatrixStimulus(item: PsychometricItem) {
   Column(
     horizontalAlignment = Alignment.CenterHorizontally,
-    verticalArrangement = Arrangement.spacedBy(4.dp)
+    verticalArrangement = Arrangement.spacedBy(2.dp)
   ) {
-    // Cuadrícula 3x3 compacta (~136.dp total)
+    // Cuadrícula 3x3 compacta (~112.dp total)
     Column(
       modifier = Modifier
-        .size(136.dp)
-        .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(10.dp))
-        .border(1.2.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(10.dp))
-        .padding(4.dp),
+        .size(112.dp)
+        .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(8.dp))
+        .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(8.dp))
+        .padding(3.dp),
       verticalArrangement = Arrangement.SpaceEvenly
     ) {
       for (row in 0..2) {
@@ -83,23 +83,23 @@ private fun MatrixStimulus(item: PsychometricItem) {
             val isTarget = (row == 2 && col == 2)
             Box(
               modifier = Modifier
-                .size(38.dp)
+                .size(31.dp)
                 .background(
                   if (isTarget) item.domain.color.copy(alpha = 0.15f)
                   else MaterialTheme.colorScheme.surfaceVariant,
-                  RoundedCornerShape(6.dp)
+                  RoundedCornerShape(5.dp)
                 )
                 .border(
-                  width = if (isTarget) 1.5.dp else 0.6.dp,
-                  color = if (isTarget) item.domain.color else MaterialTheme.colorScheme.outline.copy(alpha = 0.5f),
-                  shape = RoundedCornerShape(6.dp)
+                  width = if (isTarget) 1.2.dp else 0.5.dp,
+                  color = if (isTarget) item.domain.color else MaterialTheme.colorScheme.outline.copy(alpha = 0.4f),
+                  shape = RoundedCornerShape(5.dp)
                 ),
               contentAlignment = Alignment.Center
             ) {
               if (isTarget) {
                 Text(
                   text = "?",
-                  fontSize = 20.sp,
+                  fontSize = 18.sp,
                   fontWeight = FontWeight.Black,
                   color = item.domain.color
                 )
@@ -236,10 +236,10 @@ private fun WorkingMemoryStimulus(item: PsychometricItem) {
   Box(
     modifier = Modifier
       .fillMaxWidth(0.95f)
-      .height(60.dp)
-      .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(10.dp))
-      .border(1.2.dp, item.domain.color.copy(alpha = 0.6f), RoundedCornerShape(10.dp))
-      .padding(horizontal = 12.dp),
+      .height(42.dp)
+      .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(8.dp))
+      .border(1.dp, item.domain.color.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
+      .padding(horizontal = 10.dp),
     contentAlignment = Alignment.Center
   ) {
     Text(
@@ -249,7 +249,7 @@ private fun WorkingMemoryStimulus(item: PsychometricItem) {
         letterSpacing = 2.sp,
         fontWeight = FontWeight.ExtraBold
       ),
-      color = MaterialTheme.colorScheme.onSurface,
+      color = item.domain.color,
       textAlign = TextAlign.Center
     )
   }
@@ -257,45 +257,56 @@ private fun WorkingMemoryStimulus(item: PsychometricItem) {
 
 @Composable
 private fun SpeedStimulus(item: PsychometricItem) {
+  val speedContent = if (item.stimulusCode.contains(":")) {
+    item.stimulusCode.substringAfter(":")
+  } else {
+    item.stimulusCode
+  }
   Box(
     modifier = Modifier
       .fillMaxWidth(0.95f)
-      .height(55.dp)
-      .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(10.dp))
-      .border(1.2.dp, item.domain.color.copy(alpha = 0.5f), RoundedCornerShape(10.dp))
-      .padding(horizontal = 10.dp),
+      .height(38.dp)
+      .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(8.dp))
+      .border(1.dp, item.domain.color.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
+      .padding(horizontal = 8.dp),
     contentAlignment = Alignment.Center
   ) {
     Text(
-      text = item.prompt,
-      style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
-      color = MaterialTheme.colorScheme.onSurface,
+      text = speedContent,
+      style = MaterialTheme.typography.bodyMedium.copy(
+        fontFamily = FontFamily.Monospace,
+        fontWeight = FontWeight.Bold,
+        letterSpacing = 1.sp
+      ),
+      color = item.domain.color,
       textAlign = TextAlign.Center,
-      maxLines = 2
+      maxLines = 1
     )
   }
 }
 
 @Composable
 private fun VerbalAnalogyStimulus(item: PsychometricItem) {
+  val analogyCategory = if (item.stimulusCode.contains(":")) {
+    item.stimulusCode.substringAfter(":").replace("_", " ")
+  } else {
+    item.domain.fullName
+  }
   Box(
     modifier = Modifier
-      .fillMaxWidth(0.95f)
-      .height(55.dp)
-      .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(10.dp))
-      .border(1.2.dp, item.domain.color.copy(alpha = 0.5f), RoundedCornerShape(10.dp))
+      .fillMaxWidth(0.90f)
+      .height(34.dp)
+      .background(item.domain.color.copy(alpha = 0.12f), RoundedCornerShape(8.dp))
+      .border(1.dp, item.domain.color.copy(alpha = 0.4f), RoundedCornerShape(8.dp))
       .padding(horizontal = 10.dp),
     contentAlignment = Alignment.Center
   ) {
     Text(
-      text = item.prompt,
-      style = MaterialTheme.typography.bodySmall.copy(
-        fontStyle = androidx.compose.ui.text.font.FontStyle.Italic,
-        fontWeight = FontWeight.Bold
-      ),
-      color = MaterialTheme.colorScheme.onSurface,
+      text = "📖 Relación Semántica: $analogyCategory",
+      style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+      color = item.domain.color,
       textAlign = TextAlign.Center,
-      maxLines = 2
+      maxLines = 1
     )
   }
 }
